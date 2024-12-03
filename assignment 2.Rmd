@@ -1,0 +1,268 @@
+---
+title: "Bayesian Machine Learning Assignment 2"
+author: "Bernard Gonzales"
+date: "2024-10-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(dirmult)
+library(bayestestR)
+library(rstan)
+```
+
+# Part 1: Using Conjugate Priors with White-Wine Data (33
+pts)
+
+To begin, take a look at the white-wine dataset that accompanies this assignment. There are 11 continuous predictors (we are not considering quality as a continuous variable here).
+
+- Choose 2 continuous predictors and plot density plots (using `ggplot2`).
+- For each predictor, consider the density plot. What do you notice? Do they look like they are normally distributed? Skewed?
+
+```{r}
+white_wine <- read.csv('whitewine-training-ds6040.csv')
+ggplot(white_wine, aes(alcohol)) +
+  geom_density()
+```
+```{r}
+ggplot(white_wine, aes(pH)) +
+  geom_density()
+```
+The alcohol data is unimodal, but it is right skewed. The pH data is also unimodal, and it has no skew, so it looks like it could be represented by a normal distribution.
+
+
+Now, for each variable please do the following:
+
+1. Using a normal likelihood with **known** variance (the known variance for each variable is the observed variance, go ahead and calculate that), use the appropriate conjugate prior and calculate out the posterior distribution (you should be able to look up the formula for the posteriors, no need to derive them out yourself). When you calculate these posterior distributions, use two sets of hyperparameters (per variable), one where the hyperparameters specify a fairly uninformative prior, and the other where the hyperparameters are much more informative (this doesn't need to be a reasonable value either, this exercise is to demonstrate the impact of hyperparameter choice). At the end of this exercise, you should have the parameters for 4 posterior distributions.
+
+**Bayes' Theorem**
+$$ P(\theta | X) = \frac{P(X | \theta) P(\theta)}{P(X)} $$
+where $$P(\theta | X)$$ is the posterior distribution, $$P(X | \theta)$$ is the likelihood, $$P(\theta)$$ is the prior distribution, and $$P(X)$$ is the marginal distribution.
+
+First, we will calculate the posterior distributions of the alcohol and pH levels using uninformative conjugate priors. The two variables can be represented as a normally distributed likelihood with known variance $$\sigma^2$$, so their conjugate priors will also be normally distributed. Since we want uninformative priors, the parameters for the normal distribution ($$\mu$$ and $$\sigma$$) should have as little bias as possible. We will set our uninformative priors to $$N(0, 1000^2)$$ with $$\mu_0 = 0$$ and $$\sigma_0^2 = 1000^2$$. Based on this information, the formulas for our posterior hyperparameters are as follows:
+$$ \mu_{post} = \frac{\sigma^2\mu_0+n\sigma_0^2\bar{x}}{n\sigma_0^2+\sigma^2} $$
+$$ \sigma_{post}^2 = \frac{1}{\frac{n}{\sigma^2}+\frac{1}{\sigma_0^2}} $$
+
+
+Now let's use the data to calculate the likelihood parameters:
+```{r}
+alc_mu <- mean(white_wine$alcohol)
+alc_sig2 <- var(white_wine$alcohol)
+ph_mu <- mean(white_wine$pH)
+ph_sig2 <- var(white_wine$pH)
+cat("alcohol mean:", alc_mu, "\nalcohol variance:", alc_sig2, "\npH mean:", ph_mu, "\npH variance:", ph_sig2)
+```
+
+Now that we have our likelihood and prior parameters, we can calculate the hyperparameters for our posterior distribution.
+```{r}
+n <- 3178
+mu0 <- 0
+sig02 <- 1000^2
+mu_posterior <- function(n, mu, sig2, mu0, sig02) {
+  (sig2*mu0 + n*sig02*mu) / (n*sig02 + sig2)
+}
+sigma2_posterior <- function(n, sig2, sig02) {
+  1 / (n/sig2 + 1/sig02)
+}
+un_alc_mu_post <- mu_posterior(n = n, mu = alc_mu, sig2 = alc_sig2, mu0 = mu0, sig02 = sig02)
+un_alc_sig2_post <- sigma2_posterior(n = n, sig2 = alc_sig2, sig02 = sig02)
+un_ph_mu_post <- mu_posterior(n = n, mu = ph_mu, sig2 = ph_sig2, mu0 = mu0, sig02 = sig02)
+un_ph_sig2_post <- sigma2_posterior(n = n, sig2 = ph_sig2, sig02 = sig02)
+cat("Uninformative Priors:\nalcohol posterior distribution ~ N(", un_alc_mu_post, ",", un_alc_sig2_post, ")\npH posterior distribution ~ N(", un_ph_mu_post, ",", un_ph_sig2_post, ")")
+```
+
+Next, we will calculate posterior distributions using more informative priors. I will chose hyperparameters $$\mu_0 = 1$$ and $$\sigma_0^2 = 0.25^2$$. Let's see how this affects the new posterior distributions.
+```{r}
+mu0 <- 1
+sig02 <- 0.25^2
+in_alc_mu_post <- mu_posterior(n = n, mu = alc_mu, sig2 = alc_sig2, mu0 = mu0, sig02 = sig02)
+in_alc_sig2_post <- sigma2_posterior(n = n, sig2 = alc_sig2, sig02 = sig02)
+in_ph_mu_post <- mu_posterior(n = n, mu = ph_mu, sig2 = ph_sig2, mu0 = mu0, sig02 = sig02)
+in_ph_sig2_post <- sigma2_posterior(n = n, sig2 = ph_sig2, sig02 = sig02)
+cat("Informative Priors:\nalcohol posterior distribution ~ N(", in_alc_mu_post, ",", in_alc_sig2_post, ")\npH posterior distribution ~ N(", in_ph_mu_post, ",", in_ph_sig2_post, ")")
+```
+
+2. What are the impacts of different hyperparameter choices on the posterior distributions? Is it possible to chose "bad" hyperparameters? If so, why? What are the consequences for inference?
+
+Conjugate prior parameters seem to have a very small effect on posterior distributions. The posterior mean seems to be a weighted average of the means from the likelihood and the prior, while the posterior variance seems to be extremely reliant on the likelihood variance, since the prior variance seems to have a negligible effect on the posterior variance. It's possible to choose really bad hyperparameters that are indicative of a prior that has no connection to the context of the data that would skew the posterior distribution towards the arbitrary prior distribution.
+
+Now, we are going to repeat the process, but this time using a different likelihood function.
+
+1. Repeat the previous work, but this time use an exponential likelihood and corresponding conjugate prior (again, you can look this up and get the formula that way).
+
+```{r}
+un_alpha <- 1
+un_beta <- 1
+un_alc_ex_alpha <- un_alpha + n
+un_alc_ex_beta <- un_beta + sum(white_wine$alcohol)
+un_ph_ex_alpha <- un_alpha + n
+un_ph_ex_beta <- un_beta + sum(white_wine$pH)
+cat("Uninformative Priors:\nalcohol posterior distribution ~ Gamma(", un_alc_ex_alpha, ",", un_alc_ex_beta, ")\npH posterior distribution ~ Gamma(", un_ph_ex_alpha, ",", un_ph_ex_beta, ")")
+```
+```{r}
+in_alpha <- 1000
+in_beta <- 1000
+in_alc_ex_alpha <- in_alpha + n
+in_alc_ex_beta <- in_beta + sum(white_wine$alcohol)
+in_ph_ex_alpha <- in_alpha + n
+in_ph_ex_beta <- in_beta + sum(white_wine$pH)
+cat("Informative Priors:\nalcohol posterior distribution ~ Gamma(", in_alc_ex_alpha, ",", in_alc_ex_beta, ")\npH posterior distribution ~ Gamma(", in_ph_ex_alpha, ",", in_ph_ex_beta, ")")
+```
+
+
+# Part 2: Multinomial Priors for Wine Quality (33 points)
+
+The `quality` variable in this dataset is a categorical variable with values taking letter grades (A, C, F). We can consider this variable to be multinomially distributed. Multinomial distributions have a conjugate prior in the Dirichlet distribution. The Dirichlet distribution can be parameterized using either a single $$\alpha$$ parameter that applies to each category, or you can specify a different $$\alpha_k$$ parameter for each category. In any case, the posterior distribution for a multinomial-Dirichlet model is $$Dirichlet(\alpha + n)$$, where $$\alpha$$ is a vector of either all the same number, or the hyperparameter choice per category, and $$n$$ is a vector of the counts of each category.
+
+1. Looking at the above formula for the posterior distribution, how can you interpret the meaning of $$\alpha$$?
+
+$$\alpha$$ represents a vector of weights in which each value represents the ratio of the probability of the given categorical value to the probability of each category being uniformly distributed. In other words, this specific $$\alpha$$ parameter represents the ratios of the true proportionality of the different grades (`A`, `C`, & `F`) to the probability of $$\frac{1}{3}$$.
+
+2. Choosing two sets of hyperparameters, one fairly uninformative and one highly informative, generate 1000 observations from the posterior distributions (using `rdirichlet` from the `dirmult` R package). At the end of this generative process, you should have two data.frames or matrices that have 1000 rows and 3 columns.
+
+For my uninformative prior, I will set $$\alpha$$ to a vector of `(1, 1, 1)`. For my informative prior, I will set $$\alpha$$ to a vector of `(0.1, 1.95, 0.95)`
+```{r}
+un_dir <- data.frame(rdirichlet(n = 1000, alpha = c(1, 1, 1)))
+colnames(un_dir) <- (c('A', 'C', 'F'))
+in_dir <- data.frame(rdirichlet(n = 1000, alpha = c(0.1, 1.95, 0.95)))
+colnames(in_dir) <- (c('A', 'C', 'F'))
+```
+
+
+3. Plot these posterior distributions (you should end up with 2 figures of box plots, one figure per prior specification, each figure containing 3 boxplots, one for each letter grade).
+
+```{r}
+boxplot(un_dir, col = rainbow(ncol(un_dir)), main = 'Uninformative Prior', xlab = 'Quality', ylab = 'Outcomes')
+```
+```{r}
+boxplot(in_dir, col = rainbow(ncol(in_dir)), main = 'Informative Prior', xlab = 'Quality', ylab = 'Outcomes')
+```
+
+
+4. Comment on the impact of prior choice here.
+
+
+
+# Part 3: A Bayesian Test of Inference (34 points)
+
+What we've been doing so far here is exploring the impact of priors using marginal distributions. While you could technically do some form of statistical inference with these, the inference isn't that interesting (is `alcohol` significantly different from 0? for example). In this part, we are going to be using conjugate priors to examine the difference in `alcohol` content between wines rated `A` and wines rated `F`.
+
+To do this, follow these steps:
+
+1. Using a normal distribution with known variance (again, using the variances you can calculate from the data), specify 2 hyperparameter choices, one fairly uninformative, one very informative, for the alcohol content in wines rated A and wines rated F. Note, you will need hyperparameters for each type of wine, but those hyperparameters can be the same for each type of wine.
+
+For my uninformative priors, I will again choose $$\mu_0 = 0$$ and $$\sigma_0^2 = 1000^2$$ for both groups of wines. For my informative priors, I think that they will have the same amount of variance, so $$\sigma_0^2 = 0.25^2$$. However, I think that the mean alcohol levels will be different, so for the wines rated A, $$\mu_0 = 1$$, and for the wines rated F, $$\mu_0 = -1$$.
+
+2. Calculate out the posterior distributions for alcohol content in wines with an F rating, and wines with an A rating. Because the posterior distribution will be a normal distribution with a value for the posterior mean and variance, you will have two means and two variances (per hyperparameter set, so you'll have 4 in total.)
+
+```{r}
+a_wine <- white_wine %>% filter(wine_quality == 'A')
+f_wine <- white_wine %>% filter(wine_quality == 'F')
+a_mu <- mean(a_wine$alcohol)
+a_sig2 <- var(a_wine$alcohol)
+f_mu <- mean(f_wine$alcohol)
+f_sig2 <- var(f_wine$alcohol)
+mu0 <- 0
+sig02 <- 1000^2
+un_a_mu <- mu_posterior(n = n, mu = a_mu, sig2 = a_sig2, mu0 = mu0, sig02 = sig02)
+un_a_sig2 <- sigma2_posterior(n = n, sig2 = a_sig2, sig02 = sig02)
+un_f_mu <- mu_posterior(n = n, mu = f_mu, sig2 = f_sig2, mu0 = mu0, sig02 = sig02)
+un_f_sig2 <- sigma2_posterior(n = n, sig2 = f_sig2, sig02 = sig02)
+cat("Uninformative Priors:\nalcohol of A-rated wines ~ N(", un_a_mu, ",", un_a_sig2, ")\nalcohol of F-rated wines ~ N(", un_f_mu, ",", un_f_sig2, ")")
+```
+```{r}
+a_mu0 <- 1
+f_mu0 <- -1
+sig02 <- 0.25^2
+in_a_mu <- mu_posterior(n = n, mu = a_mu, sig2 = a_sig2, mu0 = a_mu0, sig02 = sig02)
+in_a_sig2 <- sigma2_posterior(n = n, sig2 = a_sig2, sig02 = sig02)
+in_f_mu <- mu_posterior(n = n, mu = f_mu, sig2 = f_sig2, mu0 = f_mu0, sig02 = sig02)
+in_f_sig2 <- sigma2_posterior(n = n, sig2 = f_sig2, sig02 = sig02)
+cat("Informative Priors:\nalcohol of A-rated wines ~ N(", in_a_mu, ",", in_a_sig2, ")\nalcohol of F-rated wines ~ N(", in_f_mu, ",", in_f_sig2, ")")
+```
+
+3. These posterior distributions are still for the marginal distributions of alcohol content, and we are interested in if the alcohol content differs between the two levels of wine quality. Fortunately, the difference between normal distributions is a normal distribution, so we can hand calculate the posterior distribution of the differences between alcohol content:
+
+  1. The posterior mean of the difference between two normal distributions with means $$\mu_x$$ and $$\mu_y$$ is simply $$\mu_x − \mu_y$$
+
+```{r}
+cat("Difference in Means (from Uninformative Priors):", un_a_mu - un_f_mu, "\nDifference in Means (from Informative Priors):", in_a_mu - in_f_mu)
+```
+
+
+  2. The posterior variance of the difference between two normal distributions (with variances $$\sigma_x^2$$ and $$\sigma_y^2$$) is simply $$\sigma_x^2 + \sigma_y^2$$.
+  
+```{r}
+cat("Difference in Variances (from Uninformative Priors):", un_a_sig2^2 + un_f_sig2^2, "\nDifference in Variances (from Informative Priors):", in_a_sig2^2 + in_f_sig2^2)
+```
+
+  
+4. Now, you should have the posterior distributions of the differences between alcohol contents for wines rated A vs F. You'll have 2 of these posterior distributions because you had two sets of priors, one uninformative, one highly informative
+
+  1. Calculate the 95% HDI for each of the posterior distributions. What does this interval tell you about the difference between the alcohol quantities in the two grades of wine? Would you consider the alcohol content to be 'significantly' different?
+  
+```{r}
+uninformative_a_distro <- rnorm(n = n, mean = un_a_mu, sd = sqrt(un_a_sig2))
+uninformative_f_distro <- rnorm(n = n, mean = un_f_mu, sd = sqrt(un_f_sig2))
+informative_a_distro <- rnorm(n = n, mean = in_a_mu, sd = sqrt(in_a_sig2))
+informative_f_distro <- rnorm(n = n, mean = in_f_mu, sd = sqrt(in_f_sig2))
+print("Uninformative A-rated wines\'")
+hdi(uninformative_a_distro)
+print("Uninformative F-rated wines\'")
+hdi(uninformative_f_distro)
+print("Informative A-rated wines\'")
+hdi(informative_a_distro)
+print("Informative F-rated wines\'")
+hdi(informative_f_distro)
+```
+  There is a statistically significant difference between the alcohol contents of the wines rated A and the wines rated F.
+  
+  2. How does prior choice impact this?
+  
+  Prior choice has almost no impact on the posterior distributions of the wines. The only observable difference is on the upper bound of the F-rated wines: for the uninformative prior, the upper bound is -0.53, while for the informative prior, the upper bound is -0.54.
+
+# Extra Credit (25 pts)
+
+Savvy students will notice I made an important assumption in specifying the likelihoods in part 1 and 2, that they are normal likelihoods with **known** variance. This was to simplify the posterior from a normal-inverse-gamma to just a normal distribution. However, technically, it's a bad assumption to make. In this extra credit, you will be writing a small Stan analysis to test the difference between alcohol quantities in wines rated A and wines rated F, when we don't assume we know the variance of the alcohol quantities.
+
+1. Write a Stan model that specifies normal-likelihoods with unknown means and variances. The priors for the means should be normal distributions, while the priors for variances should be a Half-Cauchy (note, this is not the conjugate prior, but we are going to be using Stan here, so we don't need to chose conjugate priors!). Then, using the transformed parameters block, calculate the difference between the means of the marginal distributions.
+
+2. Run the Stan models using two sets of hyperparameters, the uninformative choices and a highly informative choice. Plot the posterior distributions of the differences in the means.
+
+```{r}
+rstan_options(auto_write = TRUE)
+
+dat_list = list(A = 100, F = 1000, a_alc = a_wine$alcohol, f_alc = f_wine$alcohol)
+
+results = stan(file = 'Example1.stan', data = dat_list, verbose = T)
+
+# Extract posterior samples
+posterior <- extract(results)
+mean_diff_samples <- posterior$mean_diff
+
+# Plot posterior distribution of mean differences
+hist(mean_diff_samples, breaks = 30, main = "Posterior Distribution of Mean Differences from Uninformative Priors",
+     xlab = "Difference in Mean Alcohol Levels (A - F)", col = "skyblue")
+
+```
+
+```{r}
+dat_list = list(A = 100, F = 1000, a_alc = a_wine$alcohol, f_alc = f_wine$alcohol)
+
+results = stan(file = 'Example2.stan', data = dat_list, verbose = T)
+
+# Extract posterior samples
+posterior <- extract(results)
+mean_diff_samples <- posterior$mean_diff
+
+# Plot posterior distribution of mean differences
+hist(mean_diff_samples, breaks = 30, main = "Posterior Distribution of Mean Differences from Informative Priors",
+     xlab = "Difference in Mean Alcohol Levels (A - F)", col = "skyblue")
+
+```
+
+3. How are these posteriors different/similar to those from the original analyses where we specified the variances as known? What was the impact of priors here?
+
+These posteriors are similar because the priors have very little impact on the posterior distributions (because there is a lot of data). However, the variances of the mean differences are higher, meaning that the possible mean differences are more spread out, most likely because we are assuming that we don't know the actual mean difference.

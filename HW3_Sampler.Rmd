@@ -1,0 +1,325 @@
+---
+title: "Homework 3 Sampler Stubs"
+author: "Teague Henry"
+date: "2024-08-10"
+output: html_document
+---
+
+On my honor, I have neither given nor received unauthorized aid on this assignment.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Sampler Stubs
+
+Below is code to get you started finishing the Gibbs Sampler I've asked you to complete in Homework 3. You can, and should, copy paste the entire codeblock into your Rmd, and complete appropriate lines. Remember to change the data load statements to be appropriate to your file system.
+
+```{r}
+#Make sure you install the Rmpfr library
+library(Rmpfr)
+dat = read.csv("coaldisasters-ds6040.csv")
+
+
+gibbs_sampler = function(iter, dat, a_mu, b_mu, a_lambda, b_lambda){
+  
+  mu_vec = vector()
+  lambda_vec = vector() 
+  k_prob_mat = matrix(nrow = iter+1, ncol = 111)
+  k_samp_vec = vector()
+  #Initialize sampler
+    mu_vec[1] = rgamma(1,a_mu, rate  = b_mu)
+  lambda_vec[1] = rgamma(1,a_lambda, rate = b_lambda)
+  k_prob_mat[1,] = rep(1/111, 111)
+  k_samp_vec[1] = 56
+  
+  #Sampler
+  for(i in 2:(iter+1)){
+    k = k_samp_vec[i-1]
+    mu_vec[i] = rgamma(1, a_mu + sum(dat$Count[1:k]), rate = k + b_mu)
+    lambda_vec[i] = rgamma(1, a_lambda + sum(dat$Count[(k+1):112]), rate = 112 - k + b_lambda)
+    
+    l_temp = vector()
+  for(j in 1:111){  
+    l_temp[j] = sum(log(mpfr(dpois(dat[1:j,2], lambda = rep(mu_vec[i],j)), precBits = 100))) + sum(log(mpfr(dpois(dat[(j+1):112,2], lambda = rep(lambda_vec[i],112-j)), precBits = 100)))
+  }
+  l_temp <- mpfr(l_temp, precBits = 100)
+  k_prob_mat[i,] = as.numeric(exp(l_temp)/sum(exp(l_temp))) 
+  k_samp_vec[i] = sample(size = 1,1:111, prob = k_prob_mat[i,])
+  }
+  toReturn = data.frame(mu = mu_vec, lambda = lambda_vec, k = k_samp_vec)
+  
+  return(toReturn)
+}
+
+test = gibbs_sampler(1000, dat, a_mu = 1, b_mu = 1, a_lambda = 1, b_lambda = 1)
+
+write.csv(test, 'gibbs_sampler.csv')
+```
+
+
+```{r}
+library(tidyverse)
+test$index <- 1:1001
+ggplot(test, aes(mu)) +
+  geom_density(fill = 'blue', alpha = 0.5)
+```
+
+```{r}
+ggplot(test, aes(lambda)) +
+  geom_density(fill = 'green', alpha = 0.5)
+```
+
+```{r}
+ggplot(test, aes(k)) +
+  geom_density(fill = 'purple', alpha = 0.5)
+```
+```{r}
+mu_mean <- mean(test$mu)
+mu_ci <- quantile(test$mu, probs = c(0.025, 0.975))
+
+lambda_mean <- mean(test$lambda)
+lambda_ci <- quantile(test$lambda, probs = c(0.025, 0.975))
+
+cat("EAP Estimate and 95% Credible Interval for μ:\n")
+cat("EAP Estimate:", mu_mean, "\n")
+cat("95% CI:", mu_ci, "\n\n")
+
+cat("EAP Estimate and 95% Credible Interval for λ:\n")
+cat("EAP Estimate:", lambda_mean, "\n")
+cat("95% CI:", lambda_ci, "\n")
+```
+
+The five most probable values of `k` in order from most probable to least probable are 41, 40, 39, 42, & 37, which tells us that the most likely years of the changepoint occurred was between 1891 & 1892. The EAP of `μ` tells us that the Poisson rate for the first 40 observations (the ones before the changepoint) was about 3.05, and we are 95% confident that `μ` is between 2.52 and 3.63. The EAP of `λ` is the expected Poisson rate for the remaining observations (the ones after the changepoint), which was 0.92. We are 95% confident that `λ` is between 0.70 and 1.16.
+
+A credible interval might not be the most appropriate if we know that the changepoint was instantaneous or discrete. The EAP is more applicable to continuous probability distributions. Because we are looking for a changepoint in the rate of coal mining disasters using Poisson distributions for our model, we would probably use the **maximum a posteriori (MAP)**, which would represent the most likely single value, since Poisson distributions (and our data on the coal mining disasters) are discrete.
+
+```{r}
+met_in_gibbs_sampler = function(iter, dat, a_mu, b_mu, a_lambda, b_lambda){
+  
+  mu_vec = vector()
+  lambda_vec = vector() 
+  k_prob_mat = matrix(nrow = iter+1, ncol = 111)
+  k_samp_vec = vector()
+  #Initialize sampler
+    mu_vec[1] = rgamma(1,a_mu, rate  = b_mu)
+  lambda_vec[1] = rgamma(1,a_lambda, rate = b_lambda)
+  k_prob_mat[1,] = rep(1/111, 111)
+  k_samp_vec[1] = 56
+  
+  #Sampler
+  for (i in 2:(iter + 1)) {
+    # Current value of k
+    current_k <- k_samp_vec[i - 1]
+    
+    # Update mu and lambda based on current k
+    mu_vec[i] <- rgamma(1, a_mu + sum(dat$Count[1:current_k]), rate = current_k + b_mu)
+    lambda_vec[i] <- rgamma(1, a_lambda + sum(dat$Count[(current_k + 1):112]), rate = 112 - current_k + b_lambda)
+    
+    # Metropolis step for k
+    # Propose a new k* uniformly from 1 to 112
+    proposed_k <- sample(1:112, size = 1)
+    
+    # Calculate log likelihood ratio for the acceptance ratio a_k
+    log_likelihood_current_k <- sum(dpois(dat$Count[1:current_k], lambda = mu_vec[i], log = TRUE)) + sum(dpois(dat$Count[(current_k + 1):112], lambda = lambda_vec[i], log = TRUE))
+    
+    log_likelihood_proposed_k <- sum(dpois(dat$Count[1:proposed_k], lambda = mu_vec[i], log = TRUE)) + sum(dpois(dat$Count[(proposed_k + 1):112], lambda = lambda_vec[i], log = TRUE))
+    
+    # Compute acceptance probability a_k
+    a_k <- exp(log_likelihood_proposed_k - log_likelihood_current_k)
+    
+    # Check for NA or NaN in a_k and set to 0 if necessary
+    if (is.na(a_k) || is.nan(a_k)) {
+      a_k <- 0  # Setting a_k to 0 means we will always reject k* if a_k is undefined
+    }
+    
+    # Sample r from Uniform(0, 1)
+    r <- runif(1)
+    
+    # Accept or reject proposed k*
+    if (r < a_k) {
+      k_samp_vec[i] <- proposed_k
+    } else {
+      k_samp_vec[i] <- current_k
+    }
+  }
+  toReturn = data.frame(mu = mu_vec, lambda = lambda_vec, k = k_samp_vec)
+  
+  return(toReturn)
+}
+
+sec = met_in_gibbs_sampler(1000, dat, a_mu = 1, b_mu = 1, a_lambda = 1, b_lambda = 1)
+```
+
+```{r}
+sec$index <- 1:1001
+ggplot(sec, aes(mu)) +
+  geom_density(fill = 'blue', alpha = 0.5)
+```
+```{r}
+ggplot(sec, aes(lambda)) +
+  geom_density(fill = 'green', alpha = 0.5)
+```
+```{r}
+ggplot(sec, aes(k)) +
+  geom_density(fill = 'purple', alpha = 0.5)
+```
+```{r}
+cat("EAP Estimate and 95% Credible Interval for μ:\n")
+cat("EAP Estimate:", mean(sec$mu), "\n")
+cat("95% CI:", quantile(sec$mu, probs = c(0.025, 0.975)), "\n\n")
+
+cat("EAP Estimate and 95% Credible Interval for λ:\n")
+cat("EAP Estimate:", mean(sec$lambda), "\n")
+cat("95% CI:", quantile(sec$lambda, probs = c(0.025, 0.975)), "\n")
+```
+The results are very similar, since the EAPs and the 95% credible intervals are almost identical. (I don't know why the scaling for the x-axis on the density of lambda values is different.)
+
+The issue with this implementation is that if the difference in the log-likelihoods is too large or too small, $a_k$ could be `Inf` or so small that the result would come out too small. This is because exponentiating the difference in log-likelihoods carries the risk of underflow. A better solution would be comparing the logarithmic results instead ($log(a_k)$ & $log(r)$ instead of $a_k$ & $r$).
+
+```{r}
+mod_met_in_gibbs_sampler = function(iter, dat, a_mu, b_mu, a_lambda, b_lambda){
+  
+  mu_vec = vector()
+  lambda_vec = vector() 
+  k_prob_mat = matrix(nrow = iter+1, ncol = 111)
+  k_samp_vec = vector()
+  #Initialize sampler
+    mu_vec[1] = rgamma(1,a_mu, rate  = b_mu)
+  lambda_vec[1] = rgamma(1,a_lambda, rate = b_lambda)
+  k_prob_mat[1,] = rep(1/111, 111)
+  k_samp_vec[1] = 56
+  
+  #Sampler
+  for (i in 2:(iter + 1)) {
+    # Current value of k
+    current_k <- k_samp_vec[i - 1]
+    
+    # Update mu and lambda based on current k
+    mu_vec[i] <- rgamma(1, a_mu + sum(dat$Count[1:current_k]), rate = current_k + b_mu)
+    lambda_vec[i] <- rgamma(1, a_lambda + sum(dat$Count[(current_k + 1):112]), rate = 112 - current_k + b_lambda)
+    
+    # Metropolis step for k
+    # Propose a new k* uniformly from 1 to 112
+    proposed_k <- sample((current_k - 1):(current_k + 1), size = 1)
+    
+    # Calculate log likelihood ratio for the acceptance ratio a_k
+    log_likelihood_current_k <- sum(dpois(dat$Count[1:current_k], lambda = mu_vec[i], log = TRUE)) + sum(dpois(dat$Count[(current_k + 1):112], lambda = lambda_vec[i], log = TRUE))
+    
+    log_likelihood_proposed_k <- sum(dpois(dat$Count[1:proposed_k], lambda = mu_vec[i], log = TRUE)) + sum(dpois(dat$Count[(proposed_k + 1):112], lambda = lambda_vec[i], log = TRUE))
+    
+    # Compute acceptance probability a_k
+    a_k <- exp(log_likelihood_proposed_k - log_likelihood_current_k)
+    
+    # Check for NA or NaN in a_k and set to 0 if necessary
+    if (is.na(a_k) || is.nan(a_k)) {
+      a_k <- 0  # Setting a_k to 0 means we will always reject k* if a_k is undefined
+    }
+    
+    # Sample r from Uniform(0, 1)
+    r <- runif(1)
+    
+    # Accept or reject proposed k*
+    if (r < a_k) {
+      k_samp_vec[i] <- proposed_k
+    } else {
+      k_samp_vec[i] <- current_k
+    }
+  }
+  toReturn = data.frame(mu = mu_vec, lambda = lambda_vec, k = k_samp_vec)
+  
+  return(toReturn)
+}
+
+third = mod_met_in_gibbs_sampler(1000, dat, a_mu = 1, b_mu = 1, a_lambda = 1, b_lambda = 1)
+third$index = 1:1001
+ggplot(third, aes(mu)) +
+  geom_density(fill = 'blue', alpha = 0.5)
+```
+```{r}
+ggplot(third, aes(lambda)) +
+  geom_density(fill = 'green', alpha = 0.5)
+```
+```{r}
+ggplot(third, aes(k)) +
+  geom_density(fill = 'purple', alpha = 0.5)
+```
+
+
+
+```{r}
+library(brms)
+library(combinat)
+wine <- read.csv('whitewine-training-ds6040.csv')
+wine$a <- ifelse(wine$wine_quality == 'A', 1, 0)
+# List of predictors to choose from
+predictors <- c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide", "density", "pH", "sulphates", "alcohol")
+
+# Find all 3-combinations of these predictors
+combinations <- combn(predictors, 3, simplify = FALSE)
+
+# Store results
+results <- data.frame(variables = character(), overall_accuracy = numeric(), a_accuracy = numeric())
+
+for (combo in combinations) {
+  # Fit model with current combination of predictors
+  formula <- as.formula(paste("a ~", paste(combo, collapse = " + ")))
+  fit <- brm(formula = formula, family = bernoulli(), data = wine, chains = 4, iter = 10, seed = 123)
+  
+  # Predict and calculate accuracies
+  predicted_probs <- fitted(fit, type = "response")
+  predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+  
+  overall_accuracy <- mean(predicted_classes == wine$a)
+  a_accuracy <- mean(predicted_classes[wine$a == 1] == wine$a[wine$a == 1])
+  
+  # Store results
+  results <- rbind(results, data.frame(
+    variables = paste(combo, collapse = ", "),
+    overall_accuracy = overall_accuracy,
+    a_accuracy = a_accuracy
+  ))
+}
+
+# Find the combinations with the highest accuracies
+best_overall <- results[which.max(results$overall_accuracy), ]
+best_a <- results[which.max(results$a_accuracy), ]
+
+print(best_overall)
+print(best_a)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

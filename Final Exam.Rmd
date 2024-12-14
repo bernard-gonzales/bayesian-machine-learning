@@ -9,80 +9,14 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(ggplot2)
+library(brms)
 visagetome_data <- read.csv('DS6040F24_finaldat.csv')
 ```
 
-In all of my years as a data scientist, I have not seen data that could be so ... interesting.
 
-To find a good hierarchical Bayesian model, I first had to understand the data I was working with by exploring overall trends through data visualization. I started by checking the sampling distribution of the data, aka making sure that the demographic data of the 100 users would not cause or indicate bias in this report:
-
-```{r}
-gender <- visagetome_data %>%
-  group_by(gender) %>%
-  summarize(frequency = n() / 42)
-ggplot(gender, aes(x = gender, y = frequency, fill = gender)) +
-  geom_col() +
-  labs(title = 'Users, Grouped by Gender')
-```
+We'll examine how all of the time and demographic variables affect the amount of time users spent on VisageTome using a hierarchical Bayesian model, and we will see how much individual variability plays a role in determining the amount of time on VisageTome.
 
 ```{r}
-ages <- visagetome_data %>%
-  group_by(age) %>%
-  summarize(frequency = n() / 42)
-ggplot(ages, aes(x = age, y = frequency)) +
-  geom_point() +
-  geom_line() +
-  labs(title = 'Users, Grouped by Age')
-```
-
-```{r}
-nationalities <- visagetome_data %>%
-  group_by(nationality) %>%
-  summarize(frequency = n() / 42)
-ggplot(nationalities, aes(x = nationality, y = frequency, fill = nationality)) +
-  geom_col() +
-  labs(title = 'Users, Grouped by Nationality')
-```
-
-Everything looks good. There aren't any groups that are particularly overrepresented or underrepresented.
-
-Next, I'll graph the data as a time series to see if there are any correlations between day of the week and time spent on VisageTome.
-
-```{r}
-time_groups <- visagetome_data %>%
-  group_by(week, day_of_week, time_of_day) %>%
-  summarize(mean = mean(MinPerBlock)) %>%
-  arrange(factor(time_of_day, levels = c('Morning', 'Midday', 'Evening'))) %>%
-  arrange(factor(day_of_week, levels = c('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'))) %>%
-  arrange(factor(week)) %>%
-  mutate(time = paste(week, day_of_week, time_of_day))
-ggplot(time_groups, aes(x = fct_inorder(time), y = mean)) +
-  geom_point() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1)) +
-  labs(title = 'Mean Time Spent on VisageTome')
-  xlab('Time Spans')
-```
-
-It looks like users spend more time on VisageTome on Fridays and Saturdays than during the rest of the week.
-
-Let's see how the much users use VisageTome on average:
-
-```{r}
-user <- visagetome_data %>%
-  group_by(user_id) %>%
-  summarize(avg_screen_time = mean(MinPerBlock)) %>%
-  arrange(avg_screen_time)
-ggplot() +
-  geom_point(aes(x = 1:100, y = user$avg_screen_time))
-```
-
-Some users spent an insane amount of time on VisageTome, but we'll explore that later.
-
-For now, we'll see how all of the time and demographic variables affect the amount of time users spent on VisageTome using a hierarchical Bayesian model, and we will see how much individual variability plays a role in determining the amount of time on VisageTome.
-
-```{r}
-library(brms)
-
 formula <- MinPerBlock ~ 1 + time_of_day + day_of_week + week + 
            gender + age + nationality + 
            (1 | user_id)
@@ -102,4 +36,116 @@ fit <- brm(
 
 summary(fit)
 ```
+```{r, eval=FALSE}
+> summary(fit)
+ Family: gaussian 
+  Links: mu = identity; sigma = identity 
+Formula: MinPerBlock ~ 1 + time_of_day + day_of_week + week + gender + age + nationality + (1 | user_id) 
+   Data: visagetome_data (Number of observations: 4200) 
+  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
+         total post-warmup draws = 4000
+
+Multilevel Hyperparameters:
+~user_id (Number of levels: 100) 
+              Estimate Est.Error l-95% CI u-95% CI Rhat
+sd(Intercept)    51.40      7.42    39.75    68.98 1.01
+              Bulk_ESS Tail_ESS
+sd(Intercept)      350      486
+
+Regression Coefficients:
+                        Estimate Est.Error l-95% CI u-95% CI
+Intercept                   1.78     17.65   -35.57    33.93
+time_of_dayMidday         -13.43      3.50   -20.30    -6.67
+time_of_dayMorning        -12.63      3.45   -19.44    -5.92
+day_of_weekMonday         -20.12      4.63   -29.22   -11.21
+day_of_weekSaturday        18.98      4.62    10.02    28.04
+day_of_weekSunday         -33.95      4.63   -42.79   -24.82
+day_of_weekThursday       -39.07      4.68   -48.39   -29.82
+day_of_weekTuesday        -25.58      4.55   -34.43   -16.71
+day_of_weekWednesday      -39.68      4.72   -48.80   -30.26
+week                       -1.35      2.99    -7.16     4.53
+genderMale                 -1.89      7.28   -15.80    12.50
+age                         2.10      0.20     1.71     2.49
+nationalityCarthaginian     7.73      7.80    -7.71    23.11
+nationalityFirstNations     5.89      7.97   -10.21    20.89
+nationalityHolyRoman       -4.28      8.72   -21.07    13.15
+nationalityRoman           -0.30      9.01   -17.50    17.65
+                        Rhat Bulk_ESS Tail_ESS
+Intercept               1.00      587     1062
+time_of_dayMidday       1.00     5848     3006
+time_of_dayMorning      1.00     5157     3168
+day_of_weekMonday       1.00     4404     3060
+day_of_weekSaturday     1.00     3496     3001
+day_of_weekSunday       1.00     4074     3193
+day_of_weekThursday     1.00     3811     3215
+day_of_weekTuesday      1.00     3892     2796
+day_of_weekWednesday    1.00     3697     2919
+week                    1.00     6570     3105
+genderMale              1.00     1023     1849
+age                     1.00      807     1311
+nationalityCarthaginian 1.00     1196     2227
+nationalityFirstNations 1.00     1889     2505
+nationalityHolyRoman    1.00     2367     2768
+nationalityRoman        1.00     2438     2690
+
+Further Distributional Parameters:
+      Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS
+sigma   101.35      1.11    99.27   103.55 1.00     7471
+      Tail_ESS
+sigma     2921
+```
+
+Draws were sampled using sampling(NUTS). For each parameter, Bulk_ESS
+and Tail_ESS are effective sample size measures, and Rhat is the potential
+scale reduction factor on split chains (at convergence, Rhat = 1).
+
+The multilevel hyperparameter `sd(Intercept)` measures the variability of baseline usage across users. The value of 51.40 is pretty high, indicating that there is significant variation between individual users in their overall app usage.
+
+The regression coefficients measure the effect of temporal and demographic variables on time spent on VisageTome. The `Intercept` coefficient represents the baseline app usage for a reference user who is female, age 18, and Atlantian, during the evening time block on Friday during the first week. The estimate of 1.78 is really small, compared to the 95% credible interval of [-35.57, 33.93], which means that this baseline is not well constrained.
+
+Let's look at the effect of the temporal variables on VisageTome usage. Users spend 13 minutes less on VisageTome in the morning and midday than the evening. For day of the week, Saturdays had the most usage time, then Fridays, which averaged 19 minutes less than Saturdays. The rest of the days (Sunday through Thursday) had significantly less time spent on VisageTome. Weeks 1 and 2 had very little change, meaning that the week variable was statistically insignificant.
+
+Next, let's see if demographic variables affected which users spent more or less time on VisageTome. Age is the only significant demographic predictor, and it indicates that older users spend more time on VisageTome than younger users. Gender and nationality had little to no effect on app usage.
+
+The residual variance (measured by `sigma`) is the unexplained variability after accounting for the predictors. The estimate for `sigma` is 101.35, which means that there is substantial variability in app usage not captured by the model.
+
+Let's investigate the possibility of superusers, who are users who spend too much time on VisageTome. We'll start by graphing the average (mean) of `MinPerBlock` per user, sorted by ascending order.
+
+```{r}
+user <- visagetome_data %>%
+  group_by(user_id) %>%
+  summarize(avg_screen_time = mean(MinPerBlock)) %>%
+  arrange(avg_screen_time)
+user$user_id = 1:100
+ggplot(user, aes(x = user_id, y = avg_screen_time)) +
+  geom_point(color = ifelse(user$avg_screen_time > 240, 'red', 'black')) +
+  xlab('Users sorted from Least to Most Time on VisageTome')
+```
+
+As we can see, there are a lot of users who somehow use VisageTome for more than four hours within the given 4-hour blocks of time. In the graph, I colored the dots indicating superusers in red, while the rest of the users have black dots. I decided on the cutoff point being 240 minutes, or four hours, since the user would have to be using VisageTome on several devices at the same time in order to be able to have more than 240 minutes of time on VisageTome within a four hour period. I will add a `superuser` variable to the data, and run the model again to see if superuser status affects the usefulness of the model.
+
+```{r}
+user <- visagetome_data %>%
+  group_by(user_id) %>%
+  summarize(avg_screen_time = mean(MinPerBlock))
+user$superuser <- ifelse(user$avg_screen_time > 240, 1, 0)
+visagetome_data$superuser <- user$superuser
+
+new_formula <- MinPerBlock ~ 1 + superuser + time_of_day + day_of_week + week + gender + age + nationality + 
+               superuser:(gender + age + nationality) + (1 | user_id)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

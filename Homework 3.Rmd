@@ -1,22 +1,18 @@
 ---
-title: "Homework 3 Sampler Stubs"
-author: "Teague Henry"
-date: "2024-08-10"
+title: "Homework 3"
+author: "Bernard Gonzales"
+date: "2024-12-6"
 output: html_document
 ---
 
 On my honor, I have neither given nor received unauthorized aid on this assignment.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-## Sampler Stubs
-
-Below is code to get you started finishing the Gibbs Sampler I've asked you to complete in Homework 3. You can, and should, copy paste the entire codeblock into your Rmd, and complete appropriate lines. Remember to change the data load statements to be appropriate to your file system.
 
 ```{r}
-#Make sure you install the Rmpfr library
 library(Rmpfr)
 dat = read.csv("coaldisasters-ds6040.csv")
 
@@ -249,64 +245,34 @@ ggplot(third, aes(k)) +
 
 ```{r}
 library(brms)
-library(combinat)
 wine <- read.csv('whitewine-training-ds6040.csv')
 wine$a <- ifelse(wine$wine_quality == 'A', 1, 0)
-# List of predictors to choose from
-predictors <- c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide", "density", "pH", "sulphates", "alcohol")
 
-# Find all 3-combinations of these predictors
-combinations <- combn(predictors, 3, simplify = FALSE)
+just_a <- subset(wine, a == 1)
 
-# Store results
-results <- data.frame(variables = character(), overall_accuracy = numeric(), a_accuracy = numeric())
+wines <- brm(formula = a ~ residual.sugar + chlorides + sulphates, family = bernoulli(), data = wine, chains = 4, iter = 1000, seed = 123)
 
-for (combo in combinations) {
-  # Fit model with current combination of predictors
-  formula <- as.formula(paste("a ~", paste(combo, collapse = " + ")))
-  fit <- brm(formula = formula, family = bernoulli(), data = wine, chains = 4, iter = 10, seed = 123)
-  
-  # Predict and calculate accuracies
-  predicted_probs <- fitted(fit, type = "response")
-  predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
-  
-  overall_accuracy <- mean(predicted_classes == wine$a)
-  a_accuracy <- mean(predicted_classes[wine$a == 1] == wine$a[wine$a == 1])
-  
-  # Store results
-  results <- rbind(results, data.frame(
-    variables = paste(combo, collapse = ", "),
-    overall_accuracy = overall_accuracy,
-    a_accuracy = a_accuracy
-  ))
-}
+a_wines <- brm(formula = a ~ residual.sugar + chlorides + sulphates, family = bernoulli(), data = just_a, chains = 4, iter = 1000, seed = 123)
 
-# Find the combinations with the highest accuracies
-best_overall <- results[which.max(results$overall_accuracy), ]
-best_a <- results[which.max(results$a_accuracy), ]
+print(wines)
 
-print(best_overall)
-print(best_a)
+print(a_wines)
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ```{r}
-
+plot(wines)
 ```
+
+```{r}
+plot(a_wines)
+```
+
+Based on the traceplots from the two logistic models, the first model's intercept and coefficients converge, while the second mode's intercept and coefficients do not converge, and tend to wander randomly. Thus, the first model, which used all of the wines, would be better at classifying the wines than the second model. This makes sense because the second model only used the wines that received an `A`, so it was not able to make generalizations about other wines which did not receive an `A`.
+
+
+
+
 
 
 

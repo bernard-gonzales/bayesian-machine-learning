@@ -1,0 +1,105 @@
+---
+title: "Bayesian Final Exam"
+author: "Bernard Gonzales"
+date: "2024-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(ggplot2)
+visagetome_data <- read.csv('DS6040F24_finaldat.csv')
+```
+
+In all of my years as a data scientist, I have not seen data that could be so ... interesting.
+
+To find a good hierarchical Bayesian model, I first had to understand the data I was working with by exploring overall trends through data visualization. I started by checking the sampling distribution of the data, aka making sure that the demographic data of the 100 users would not cause or indicate bias in this report:
+
+```{r}
+gender <- visagetome_data %>%
+  group_by(gender) %>%
+  summarize(frequency = n() / 42)
+ggplot(gender, aes(x = gender, y = frequency, fill = gender)) +
+  geom_col() +
+  labs(title = 'Users, Grouped by Gender')
+```
+
+```{r}
+ages <- visagetome_data %>%
+  group_by(age) %>%
+  summarize(frequency = n() / 42)
+ggplot(ages, aes(x = age, y = frequency)) +
+  geom_point() +
+  geom_line() +
+  labs(title = 'Users, Grouped by Age')
+```
+
+```{r}
+nationalities <- visagetome_data %>%
+  group_by(nationality) %>%
+  summarize(frequency = n() / 42)
+ggplot(nationalities, aes(x = nationality, y = frequency, fill = nationality)) +
+  geom_col() +
+  labs(title = 'Users, Grouped by Nationality')
+```
+
+Everything looks good. There aren't any groups that are particularly overrepresented or underrepresented.
+
+Next, I'll graph the data as a time series to see if there are any correlations between day of the week and time spent on VisageTome.
+
+```{r}
+time_groups <- visagetome_data %>%
+  group_by(week, day_of_week, time_of_day) %>%
+  summarize(mean = mean(MinPerBlock)) %>%
+  arrange(factor(time_of_day, levels = c('Morning', 'Midday', 'Evening'))) %>%
+  arrange(factor(day_of_week, levels = c('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'))) %>%
+  arrange(factor(week)) %>%
+  mutate(time = paste(week, day_of_week, time_of_day))
+ggplot(time_groups, aes(x = fct_inorder(time), y = mean)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1)) +
+  labs(title = 'Mean Time Spent on VisageTome')
+  xlab('Time Spans')
+```
+
+It looks like users spend more time on VisageTome on Fridays and Saturdays than during the rest of the week.
+
+Let's see how the much users use VisageTome on average:
+
+```{r}
+user <- visagetome_data %>%
+  group_by(user_id) %>%
+  summarize(avg_screen_time = mean(MinPerBlock)) %>%
+  arrange(avg_screen_time)
+ggplot() +
+  geom_point(aes(x = 1:100, y = user$avg_screen_time))
+```
+
+Some users spent an insane amount of time on VisageTome, but we'll explore that later.
+
+For now, we'll see how all of the time and demographic variables affect the amount of time users spent on VisageTome using a hierarchical Bayesian model, and we will see how much individual variability plays a role in determining the amount of time on VisageTome.
+
+```{r}
+library(brms)
+
+formula <- MinPerBlock ~ 1 + time_of_day + day_of_week + week + 
+           gender + age + nationality + 
+           (1 | user_id)
+
+fit <- brm(
+  formula = formula,
+  data = visagetome_data,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10), class = "Intercept"),
+    prior(normal(0, 10), class = "b"),
+    prior(cauchy(0, 2), class = "sd"),
+    prior(cauchy(0, 2), class = "sigma")
+  ),
+  chains = 4, iter = 2000, cores = 4
+)
+
+summary(fit)
+```
+

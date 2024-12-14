@@ -1,0 +1,89 @@
+---
+title: "Homework 4"
+author: "Bernard Gonzales"
+date: "2024-12-03"
+output: html_document
+---
+
+On my honor, I have neither given nor received unauthorized aid on this assignment.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **Part 1: Bayesian Hierarchical Modelling**
+
+1. **Problem Statement**: We are trying to analyze if conscientiousness and impact coffee and food sales, and if so, to what extent are those sales affected, while controlling for the personalities of the store managers.
+
+2. **Approach**: The model we'll be using is a Bayesian Hierarchical Model that can be described with two levels:
+
+**Observation Level**
+For each observation `i` in store `j`:
+$$ sales_{ij} \sim N(\mu_{ij}, \sigma^2) $$
+$$ \mu_{ij} = \beta_{0j} + \beta_{1j} \cdot food_{ij} $$
+We can show the distribution of sales as a normal distribution with mean $\mu_{ij}$ and variance $\sigma^2$. The mean $\mu_{ij}$ for each store is calculated with a linear regression, with baseline sales for store `j` represented as $\beta_{0j}$ and the scaling of food and coffee sales for each month represented as $\beta_{1j}$.
+
+**Store Level**
+Each store `j` has its respective $\beta_{0j}$ and $\beta_{1j}$, which depend on that store's manager's conscientiousness and neuroticism:
+$$\beta_{0j} \sim N(\gamma_{00} + \gamma_{01} \cdot con_j + \gamma_{02} \cdot neur_j, \tau_0^2)$$
+$$\beta_{1j} \sim N(\gamma_{10} + \gamma_{11} \cdot con_j + \gamma_{12} \cdot neur_j, \tau_1^2)$$
+$\gamma_{00}$ represents the average baseline coffee sales across all stores, while $\gamma_{01}$ and $\gamma_{02}$ represents the effects of conscientiousness and neuroticism on baseline coffee sales. $\gamma_{10}$ represents the average effect of food sales across all stores, while $\gamma_{11}$ and $\gamma_{12}$ represents the effects of conscientiousness and neuroticism on the food sales effect.
+
+
+3. **Prior Rationale**: Since I don't have a strong prior opinion on how these characteristics affect sales of food and coffee, I chose these weakly informative priors for our model parameters:
+$$\gamma_{ij} \sim N(0, 10^2) $$
+$$ \tau_0, \tau_1 \sim \text{Half-Cauchy(0, 2)} $$
+$$ \sigma \sim \text{Half-Cauchy(0, 2)} $$
+
+4. **Findings**: Taking the information from the **Approach** and **Prior Rationale** sections, we can code them as the following:
+
+```{r}
+library(brms)
+sales_data <- read.csv('sales-ds6040.csv')
+formula <- sales ~ 1 + food + (1 + food | store) +
+                   con + neur + food:con + food:neur
+
+fit <- brm(
+  formula = formula,
+  data = sales_data,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 10), class = "Intercept"),
+    prior(normal(0, 10), class = "b"),
+    prior(cauchy(0, 2), class = "sd"),
+    prior(cauchy(0, 2), class = "sigma")
+  ),
+  chains = 4, iter = 2000, cores = 4
+)
+summary(fit)
+
+```
+The multilevel hyperparameters describe the variability of sales at the store level. The first variable, `sd(Intercept)`, describes the standard deviation of baseline sales across stores. The estimate is 1.28, which means that stores have a lot of variability in baseline sales, and we are 95% confident that this estimate is between 0.88 and 1.87. `sd(food)` represents the standard deviation of the slopes for food sales across stores. It is estimated to be 0.85, meaning that the effect of food sales is statistically significant between stores. We are 95% confident that this effect is between 0.53 and 1.31, so some stores have weaker or strong food effects. `cor(Intercept, food)` indicates the correlation between random intercepts and slopes for food. The estimate of 0.18 means that there is a weak positive correlation, but the confidence interval indicates that this effect is uncertain.
+
+The regression coefficients describe the average effects of food, conscientiousness, and neuroticism on sales across all stores, meaning that they can be used to generalize about these effects for all of the stores. The `Intercept` describes average baseline sales when `food = 0`. The estimate of 0.51 and the 95% credible interval of [-0.16, 1,16] indicates a moderate amount of uncertainty with this estimate. `food`'s estimate is -0.83, indicating that food sales are 0.84 unites lower than for coffee. This is statistically meaningful, since the 95% credible interval [-1.30, -0.35] does not include 0. The `con` estimate of 0.35 means that managers with higher conscientiousness scores might have slightly higher sales, but it is not statistically meaningful, since the 95% CI [-0.62, 1.33] is large and includes 0. The opposite can be said about neuroticism scores, since the estimate of `neur` is -0.41, which means that higher neuroticism in store managers might have slightly lower sales, but again, this is uncertain due to the 95% CI of [-1.00, 0.17]. The estimate for `food:con` is 1.02, with a 95% CI of [0.32, 1.68], meaning that more conscientious managers have a higher effect of food on store sales than those who are less conscientious, and this effect is statistically significant. On the other hand, `food:neur` is estimated to be 0.11, with a 95% CI of [-0.31, 0.55], meaning that neuroticism has a small, positive effect on the difference between food and coffee sales, but it is not statistically significant.
+
+The last parameter, `sigma`, is the residual standard deviation of sales, aka the variability in the data not represented in the model. The estimate is 1.02, with a 95% CI of [0.95, 1.08], meaning that there is a good amount of variability in the data, but the model can account for most of the variability.
+
+5. **Summary**: On average, stores have less sales from food than from coffee, but this difference becomes less significant if stores have more conscientious managers. Conscientiousness has a meaningful interaction with food sales, since it boosts the effect of food sales on overall sales. Neuroticism has some effect on sales, but these effects are weak or uncertain. Stores have a lot of variability on baseline sales and food sales, but they have a weak correlation, so whether there is a relationship between both types of sales or not isn't certain. The model is well-specified, since the sampling of the data converges well, and the residual variability is low ($\sigma = 1.02$), meaning that the model explains the data well.
+
+6. **Diagnostics**:
+
+```{r}
+plot(fit)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
